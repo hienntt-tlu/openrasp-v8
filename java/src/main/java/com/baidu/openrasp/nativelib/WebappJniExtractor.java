@@ -38,6 +38,8 @@ package com.baidu.openrasp.nativelib;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * JniExtractor suitable for multiple application deployments on the same
@@ -57,58 +59,132 @@ import java.io.IOException;
  */
 public class WebappJniExtractor extends BaseJniExtractor {
 
-	private final File nativeDir;
-	private final File jniSubDir;
+    private static final Logger LOGGER = Logger.getLogger("com.baidu.openrasp.nativelib.WebappJniExtractor");
 
-	/**
-	 * @param classloaderName is a friendly name for your classloader which will be
-	 *                        embedded in the directory name of the
-	 *                        classloader-specific subdirectory which will be
-	 *                        created.
-	 */
-	public WebappJniExtractor(final String classloaderName) throws IOException {
-		nativeDir = getTempDir();
-		// Order of operations is such thatwe do not error if we are racing with
-		// another thread to create the directory.
-		nativeDir.mkdirs();
-		if (!nativeDir.isDirectory()) {
-			throw new IOException("Unable to create native library working directory " + nativeDir);
-		}
+    private final File nativeDir;
+    private final File jniSubDir;
 
-		final long now = System.currentTimeMillis();
-		File trialJniSubDir;
-		int attempt = 0;
-		while (true) {
-			trialJniSubDir = new File(nativeDir, classloaderName + "." + now + "." + attempt);
-			if (trialJniSubDir.mkdir())
-				break;
-			if (trialJniSubDir.exists()) {
-				attempt++;
-				continue;
-			}
-			throw new IOException("Unable to create native library working directory " + trialJniSubDir);
-		}
-		jniSubDir = trialJniSubDir;
-		jniSubDir.deleteOnExit();
-	}
+    /**
+     * @param classloaderName is a friendly name for your classloader which will be
+     *                        embedded in the directory name of the
+     *                        classloader-specific subdirectory which will be
+     *                        created.
+     */
+    public WebappJniExtractor(final String classloaderName) throws IOException {
+        // 🛡️ CONTEXT-AWARE INITIALIZATION
+        String contextInfo = "WebappJniExtractor('" + classloaderName + "')";
+        boolean isStartup = isStartupPhase();
+        
+        try {
+            info(contextInfo + " - Starting webapp extractor initialization (startup=" + isStartup + ")");
+            
+            nativeDir = getTempDir();
+            // Order of operations is such that we do not error if we are racing with
+            // another thread to create the directory.
+            nativeDir.mkdirs();
+            if (!nativeDir.isDirectory()) {
+                String errorMsg = "Unable to create native library working directory " + nativeDir;
+                error(contextInfo + " - " + errorMsg, null);
+                throw new IOException(errorMsg);
+            }
 
-	@Override
-	protected void finalize() throws Throwable {
-		super.finalize();
-		final File[] files = jniSubDir.listFiles();
-		for (final File file : files) {
-			file.delete();
-		}
-		jniSubDir.delete();
-	}
+            final long now = System.currentTimeMillis();
+            File trialJniSubDir;
+            int attempt = 0;
+            while (true) {
+                trialJniSubDir = new File(nativeDir, classloaderName + "." + now + "." + attempt);
+                if (trialJniSubDir.mkdir())
+                    break;
+                if (trialJniSubDir.exists()) {
+                    attempt++;
+                    continue;
+                }
+                String errorMsg = "Unable to create native library working directory " + trialJniSubDir;
+                error(contextInfo + " - " + errorMsg, null);
+                throw new IOException(errorMsg);
+            }
+            jniSubDir = trialJniSubDir;
+            jniSubDir.deleteOnExit();
+            
+            info(contextInfo + " - Webapp extractor initialization successful: " + jniSubDir.getAbsolutePath());
+            
+        } catch (IOException e) {
+            error(contextInfo + " - IOException during webapp initialization", e);
+            throw e; // Always throw IOException in constructor (startup phase)
+        } catch (Exception e) {
+            error(contextInfo + " - Exception during webapp initialization", e);
+            throw new IOException("WebappJniExtractor initialization failed: " + e.getMessage(), e);
+        }
+    }
 
-	@Override
-	public File getJniDir() {
-		return jniSubDir;
-	}
+    @Override
+    protected void finalize() throws Throwable {
+        super.finalize();
+        
+        // 🛡️ SAFE CLEANUP
+        try {
+            if (jniSubDir != null && jniSubDir.exists()) {
+                final File[] files = jniSubDir.listFiles();
+                if (files != null) {
+                    for (final File file : files) {
+                        try {
+                            file.delete();
+                        } catch (Exception e) {
+                            // Ignore individual file deletion failures
+                        }
+                    }
+                }
+                jniSubDir.delete();
+            }
+        } catch (Exception e) {
+            // Don't let finalize cleanup crash - log if possible
+            try {
+                error("Error during WebappJniExtractor finalize cleanup", e);
+            } catch (Exception logError) {
+                // Completely ignore if logging also fails in finalize
+            }
+        }
+    }
 
-	@Override
-	public File getNativeDir() {
-		return nativeDir;
-	}
+    @Override
+    public File getJniDir() {
+        return jniSubDir;
+    }
+
+    @Override
+    public File getNativeDir() {
+        return nativeDir;
+    }
+
+    // 🔄 MINIMAL ADDITION - STARTUP DETECTION METHOD
+    private boolean isStartupPhase() {
+        try {
+            // Use NativeLibraryUtil's startup detection if available
+            return NativeLibraryUtil.isStartupPhase();
+        } catch (Exception e) {
+            // Fallback: assume startup if NativeLibraryUtil not available
+            return true;
+        }
+    }
+    
+    // 🔄 MINIMAL ADDITION - LOGGING METHODS
+    private void info(String message) {
+        try {
+            LOGGER.log(Level.INFO, message);
+        } catch (Exception e) {
+            // Fail silently - don't let logging crash initialization
+        }
+    }
+    
+    private void error(String message, Throwable throwable) {
+        try {
+            if (throwable != null) {
+                LOGGER.log(Level.SEVERE, message, throwable);
+            } else {
+                LOGGER.log(Level.SEVERE, message);
+            }
+        } catch (Exception e) {
+            // Fail silently - don't let logging crash initialization
+        }
+    }
 }

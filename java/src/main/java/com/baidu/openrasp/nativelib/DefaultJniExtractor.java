@@ -1,3 +1,4 @@
+// filepath: e:\chuyenlab\rasp_decom\openrasp-custom\openrasp-v8\java\src\main\java\com\baidu\openrasp\nativelib\DefaultJniExtractor.java
 /*
  * #%L
  * Native library loader for extracting and loading native libraries from Java.
@@ -38,6 +39,8 @@ package com.baidu.openrasp.nativelib;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * JniExtractor suitable for single application deployments per virtual machine
@@ -49,32 +52,85 @@ import java.io.IOException;
  */
 public class DefaultJniExtractor extends BaseJniExtractor {
 
-	/**
-	 * this is where native dependencies are extracted to (e.g. tmplib/).
-	 */
-	private File nativeDir;
+    private static final Logger LOGGER = Logger.getLogger("com.baidu.openrasp.nativelib.DefaultJniExtractor");
 
-	public DefaultJniExtractor(final Class<?> libraryJarClass) throws IOException {
-		super(libraryJarClass);
+    /**
+     * this is where native dependencies are extracted to (e.g. tmplib/).
+     */
+    private File nativeDir;
 
-		nativeDir = getTempDir();
-		// Order of operations is such that we do not error if we are racing with
-		// another thread to create the directory.
-		nativeDir.mkdirs();
-		if (!nativeDir.isDirectory()) {
-			throw new IOException("Unable to create native library working directory " + nativeDir);
-		}
-		nativeDir.deleteOnExit();
-	}
+    public DefaultJniExtractor(final Class<?> libraryJarClass) throws IOException {
+        super(libraryJarClass);
 
-	@Override
-	public File getJniDir() {
-		return nativeDir;
-	}
+        // 🛡️ CONTEXT-AWARE INITIALIZATION
+        String contextInfo = "DefaultJniExtractor(" + (libraryJarClass != null ? libraryJarClass.getName() : "null") + ")";
+        boolean isStartup = isStartupPhase();
+        
+        try {
+            info(contextInfo + " - Starting initialization (startup=" + isStartup + ")");
+            
+            nativeDir = getTempDir();
+            
+            // Order of operations is such that we do not error if we are racing with
+            // another thread to create the directory.
+            nativeDir.mkdirs();
+            if (!nativeDir.isDirectory()) {
+                String errorMsg = "Unable to create native library working directory " + nativeDir;
+                error(contextInfo + " - " + errorMsg, null);
+                throw new IOException(errorMsg);
+            }
+            
+            nativeDir.deleteOnExit();
+            info(contextInfo + " - Initialization successful: " + nativeDir.getAbsolutePath());
+            
+        } catch (IOException e) {
+            error(contextInfo + " - IOException during initialization", e);
+            throw e; // Always throw IOException in constructor (startup phase)
+        } catch (Exception e) {
+            error(contextInfo + " - Exception during initialization", e);
+            throw new IOException("DefaultJniExtractor initialization failed: " + e.getMessage(), e);
+        }
+    }
 
-	@Override
-	public File getNativeDir() {
-		return nativeDir;
-	}
+    @Override
+    public File getJniDir() {
+        return nativeDir;
+    }
 
+    @Override
+    public File getNativeDir() {
+        return nativeDir;
+    }
+
+    // 🔄 MINIMAL ADDITION - STARTUP DETECTION METHOD
+    private boolean isStartupPhase() {
+        try {
+            // Use NativeLibraryUtil's startup detection if available
+            return NativeLibraryUtil.isStartupPhase();
+        } catch (Exception e) {
+            // Fallback: assume startup if NativeLibraryUtil not available
+            return true;
+        }
+    }
+    
+    // 🔄 MINIMAL ADDITION - LOGGING METHODS
+    private void info(String message) {
+        try {
+            LOGGER.log(Level.INFO, message);
+        } catch (Exception e) {
+            // Fail silently - don't let logging crash initialization
+        }
+    }
+    
+    private void error(String message, Throwable throwable) {
+        try {
+            if (throwable != null) {
+                LOGGER.log(Level.SEVERE, message, throwable);
+            } else {
+                LOGGER.log(Level.SEVERE, message);
+            }
+        } catch (Exception e) {
+            // Fail silently - don't let logging crash initialization
+        }
+    }
 }
