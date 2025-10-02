@@ -150,7 +150,7 @@ public abstract class BaseJniExtractor implements JniExtractor {
         boolean isStartup = isStartupPhase();
         
         if (isStartup) {
-            // ✅ STARTUP: Keep original behavior - throw all exceptions
+            //   STARTUP: Keep original behavior - throw all exceptions
             return extractJniOriginal(libPath, libname);
         } else {
             // 🛡️ RUNTIME: Graceful error handling
@@ -230,7 +230,7 @@ public abstract class BaseJniExtractor implements JniExtractor {
         boolean isStartup = isStartupPhase();
         
         if (isStartup) {
-            // ✅ STARTUP: Keep original behavior - throw IOException
+            //   STARTUP: Keep original behavior - throw IOException
             extractRegisteredOriginal();
         } else {
             // 🛡️ RUNTIME: Graceful error handling
